@@ -55,6 +55,7 @@ module Codec.Winery.Class (Serialise(..)
 
 import Control.Applicative
 import Control.Exception
+import Control.Monad
 import Control.Monad.Reader
 import qualified Data.ByteString as B
 import qualified Data.ByteString.FastBuilder as BB
@@ -76,7 +77,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Int
 import qualified Data.IntMap as IM
 import qualified Data.IntSet as IS
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import Data.Ord (Down(..))
 import Data.Word
 import Codec.Winery.Base as W
@@ -496,7 +497,10 @@ instance Serialise UTCTime where
       TUTCTime bs -> bs
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema "Serialise UTCTime" s
-  decodeCurrent = posixSecondsToUTCTime <$> decodeCurrent
+  decodeCurrent = forceUTCTime . posixSecondsToUTCTime <$!> decodeCurrent
+
+forceUTCTime :: UTCTime -> UTCTime
+forceUTCTime t@(UTCTime !_day !_daytime) = t
 
 instance Serialise NominalDiffTime where
   schemaGen _ = pure SInt64
@@ -525,7 +529,14 @@ instance Serialise a => Serialise [a] where
   extractor = V.toList <$> extractListBy extractor
   decodeCurrent = do
     n <- decodeVarInt
-    replicateM n decodeCurrent
+    go [] n
+    where
+      go :: [a] -> Int -> Decoder [a]
+      go !acc 0 = return $! acc
+      go !acc n = do !x <- decodeCurrent ; go (x : acc) (n-1)
+
+
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise a => Serialise (V.Vector a) where
   schemaGen _ = SVector <$> getSchema (Proxy @ a)
@@ -796,15 +807,18 @@ instance GDecodeProduct U1 where
   productDecoder = pure U1
 
 instance Serialise a => GDecodeProduct (K1 i a) where
-  productDecoder = K1 <$> decodeCurrent
+  productDecoder = K1 <$!> decodeCurrent
   {-# INLINE productDecoder #-}
 
 instance GDecodeProduct f => GDecodeProduct (M1 i c f) where
-  productDecoder = M1 <$> productDecoder
+  productDecoder = M1 <$!> productDecoder
   {-# INLINE productDecoder #-}
 
 instance (GDecodeProduct f, GDecodeProduct g) => GDecodeProduct (f :*: g) where
-  productDecoder = (:*:) <$> productDecoder <*> productDecoder
+  productDecoder = do
+    !c1 <- productDecoder
+    !c2 <- productDecoder
+    return $! (c1 :*: c2 )
   {-# INLINE productDecoder #-}
 
 class GSerialiseRecord f where
@@ -955,11 +969,11 @@ instance (GDecodeVariant f, GDecodeVariant g) => GDecodeVariant (f :+: g) where
   {-# INLINE variantDecoder #-}
 
 instance GDecodeProduct f => GDecodeVariant (C1 i f) where
-  variantDecoder _ _ = M1 <$> productDecoder
+  variantDecoder _ _ = M1 <$!> productDecoder
   {-# INLINE variantDecoder #-}
 
 instance GDecodeVariant f => GDecodeVariant (D1 i f) where
-  variantDecoder len i = M1 <$> variantDecoder len i
+  variantDecoder len i = M1 <$!> variantDecoder len i
   {-# INLINE variantDecoder #-}
 
 class GEncodeVariant f where
