@@ -107,13 +107,9 @@ import GHC.TypeLits
 class Typeable a => Serialise a where
   -- | Obtain the schema of the datatype.
   schemaGen :: Proxy a -> SchemaGen Schema
-  schemaGen = bundleSchemaGen bundleSerialise
-  {-# INLINE schemaGen #-}
 
   -- | Serialise a value.
   toBuilder :: a -> BB.Builder
-  toBuilder = bundleToBuilder bundleSerialise
-  {-# INLINE toBuilder #-}
 
   -- | A value of 'Extractor a' interprets a schema and builds a function from
   -- 'Term' to @a@. This must be equivalent to 'decodeCurrent' when the schema
@@ -128,26 +124,14 @@ class Typeable a => Serialise a where
   -- where @d@ is equivalent to 'decodeCurrent'.
   --
   extractor :: Extractor a
-  extractor = bundleExtractor bundleSerialise
-  {-# INLINE extractor #-}
 
   -- | Decode a value with the current schema.
   --
   -- @'decodeCurrent' `evalDecoder` 'toBuilder' x@ ≡ x
   decodeCurrent :: Decoder a
-  decodeCurrent = bundleDecodeCurrent bundleSerialise
-  {-# INLINE decodeCurrent #-}
 
-  -- | Instead of the four methods above, you can supply a bundle.
-  bundleSerialise :: BundleSerialise a
-  bundleSerialise = BundleSerialise
-    { bundleSchemaGen = schemaGen
-    , bundleToBuilder = toBuilder
-    , bundleExtractor = extractor
-    , bundleDecodeCurrent = decodeCurrent
-    }
 
-  {-# MINIMAL schemaGen, toBuilder, extractor, decodeCurrent | bundleSerialise #-}
+  {-# MINIMAL schemaGen, toBuilder, extractor, decodeCurrent #-}
 
 -- | A bundle of 'Serialise' methods
 data BundleSerialise a = BundleSerialise
@@ -805,6 +789,7 @@ class GDecodeProduct f where
 
 instance GDecodeProduct U1 where
   productDecoder = pure U1
+  {-# INLINE productDecoder #-}
 
 instance Serialise a => GDecodeProduct (K1 i a) where
   productDecoder = K1 <$!> decodeCurrent
