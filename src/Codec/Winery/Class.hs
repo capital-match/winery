@@ -87,6 +87,7 @@ import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Encoding.Error as T
+import qualified Data.Vector.Fusion.Stream.Monadic as Stream
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector.Unboxed as UV
@@ -513,13 +514,7 @@ instance Serialise a => Serialise [a] where
   extractor = V.toList <$> extractListBy extractor
   decodeCurrent = do
     n <- decodeVarInt
-    go [] n
-    where
-      go :: [a] -> Int -> Decoder [a]
-      go !acc 0 = return $! acc
-      go !acc n = do !x <- decodeCurrent ; go (x : acc) (n-1)
-
-
+    Stream.toList (Stream.replicateM n decodeCurrent)
   {-# INLINE decodeCurrent #-}
 
 instance Serialise a => Serialise (V.Vector a) where
@@ -556,7 +551,14 @@ instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
     <> M.foldMapWithKey (curry toBuilder) m
   {-# INLINE toBuilder #-}
   extractor = M.fromList <$> extractor
-  decodeCurrent = M.fromList <$> decodeCurrent
+  decodeCurrent = do
+    n <- decodeVarInt
+    M.fromList <$> Stream.toList (Stream.replicateM n (do
+            ! k <- decodeCurrent
+            ! v <- decodeCurrent
+            return (k,v)))
+  {-# INLINE decodeCurrent #-}
+
 
 instance (Eq k, Hashable k, Serialise k, Serialise v) => Serialise (HM.HashMap k v) where
   schemaGen _ = schemaGen (Proxy @ [(k, v)])
