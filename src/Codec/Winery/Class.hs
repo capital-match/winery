@@ -931,7 +931,10 @@ class GConstructorCount f where
   variantCount :: proxy f -> Int
 
 instance (GConstructorCount f, GConstructorCount g) => GConstructorCount (f :+: g) where
-  variantCount _ = variantCount (Proxy @ f) + variantCount (Proxy @ g)
+  variantCount _ = 
+        let !f' = variantCount (Proxy @ f)
+            !g' = variantCount (Proxy @ g)
+        in  f' + g'
   {-# INLINE variantCount #-}
 
 instance GConstructorCount (C1 i f) where
@@ -947,8 +950,8 @@ class GDecodeVariant f where
 
 instance (GDecodeVariant f, GDecodeVariant g) => GDecodeVariant (f :+: g) where
   variantDecoder len i
-    | i < len' = L1 <$> variantDecoder len' i
-    | otherwise = R1 <$> variantDecoder (len - len') (i - len')
+    | i < len' = L1 <$!> variantDecoder len' i
+    | otherwise = R1 <$!> variantDecoder (len - len') (i - len')
     where
       -- Nested ':+:' are balanced
       -- cf. https://github.com/GaloisInc/cereal/blob/cereal-0.5.8.1/src/Data/Serialize.hs#L659
