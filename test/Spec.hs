@@ -81,14 +81,20 @@ instance Arbitrary TRec where
   arbitrary = TRec <$> arbitrary <*> arbitrary
 
 instance Serialise TRec where
-  bundleSerialise = bundleRecord id
+  schemaGen = gschemaGenRecord
+  toBuilder = gtoBuilderRecord
+  extractor = gextractorRecord Nothing
+  decodeCurrent = gdecodeCurrentRecord
 
 prop_TRec = testSerialise @ TRec
 
 data TList a = TCons a (TList a) | TNil deriving (Show, Eq, Generic)
 
 instance Serialise a => Serialise (TList a) where
-  bundleSerialise = bundleVariant id
+  schemaGen = gschemaGenVariant
+  toBuilder = gtoBuilderVariant
+  extractor = gextractorVariant
+  decodeCurrent = gdecodeCurrentVariant
 
 instance Arbitrary a => Arbitrary (TList a) where
   arbitrary = sized $ \n -> if n <= 0
@@ -117,13 +123,20 @@ instance Arbitrary Node where
     Node <$> resize leftSize arbitrary <*> arbitrary <*> resize rightSize arbitrary
 
 instance Serialise Tree where
-  bundleSerialise = bundleVariant id
+  schemaGen = gschemaGenVariant
+  toBuilder = gtoBuilderVariant
+  extractor = gextractorVariant
+  decodeCurrent = gdecodeCurrentVariant
+
 
 instance Serialise Node where
-  bundleSerialise = bundleRecord $ const $ buildExtractor $ Node
+  schemaGen = gschemaGenRecord
+  toBuilder = gtoBuilderRecord
+  extractor = buildExtractor $ Node
     <$> (extractField "left" <|> extractField "leftChild")
     <*> extractField "value"
     <*> (extractField "right" <|> extractField "rightChild")
+  decodeCurrent = gdecodeCurrentRecord
 
 prop_tree = testSerialise @ Tree
 prop_node = testSerialise @ Node
@@ -134,7 +147,10 @@ instance Arbitrary Foo where
   arbitrary = toEnum <$> Gen.choose (0, 6)
 
 instance Serialise Foo where
-  bundleSerialise = bundleVariant id
+  schemaGen = gschemaGenVariant
+  toBuilder = gtoBuilderVariant
+  extractor = gextractorVariant
+  decodeCurrent = gdecodeCurrentVariant
 
 prop_Foo = testSerialise @ Foo
 
