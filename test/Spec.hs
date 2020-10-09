@@ -161,7 +161,12 @@ instance Arbitrary Soup where
   arbitrary = toEnum <$> Gen.choose (0, 2)
 
 instance Serialise Soup where
-  bundleSerialise = bundleVia WineryVariant
+  schemaGen = gschemaGenVariant
+  toBuilder = gtoBuilderVariant
+  extractor = gextractorVariant
+  decodeCurrent = gdecodeCurrentVariant
+
+
 
 data Food = Rice | Ramen Soup | Pasta Text Text deriving (Generic, Eq, Show)
 
@@ -175,7 +180,9 @@ instance Arbitrary Food where
     ]
 
 instance Serialise Food where
-  bundleSerialise = bundleVia WineryVariant
+  schemaGen = gschemaGenVariant
+  toBuilder = gtoBuilderVariant
+  decodeCurrent = gdecodeCurrentVariant
   extractor = buildExtractor
     $ ("Rice", \() -> Rice)
     `extractConstructor` ("Ramen", Ramen)

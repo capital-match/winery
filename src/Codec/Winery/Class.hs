@@ -513,13 +513,12 @@ instance Serialise UTCTime where
     SUTCTime -> pure $ \case
       TUTCTime bs -> bs
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise UTCTime" s
+    s -> unexpectedSchema  s
   decodeCurrent = forceUTCTime . posixSecondsToUTCTime <$!> decodeCurrent
   {-# INLINE decodeCurrent #-}
 
 forceUTCTime :: UTCTime -> UTCTime
 forceUTCTime t@(UTCTime !_day !_daytime) = t
-    s -> unexpectedSchema s
 
 instance Serialise NominalDiffTime where
   schemaGen _ = pure SInt64

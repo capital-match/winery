@@ -27,7 +27,11 @@ import qualified Codec.Serialise as CBOR
 data Gender = Male | Female deriving (Show, Generic)
 
 instance Serialise Gender where
-  bundleSerialise = bundleVariant id
+  schemaGen = gschemaGenVariant
+  toBuilder = gtoBuilderVariant
+  extractor = gextractorVariant
+  decodeCurrent = gdecodeCurrentVariant
+
 
 instance CBOR.Serialise Gender
 instance B.Binary Gender
@@ -48,7 +52,11 @@ data TestRec = TestRec
   } deriving (Show, Generic)
 
 instance Serialise TestRec where
-  bundleSerialise = bundleVia WineryRecord
+  schemaGen = gschemaGenRecord
+  toBuilder = gtoBuilderRecord
+  extractor = gextractorRecord Nothing
+  decodeCurrent = gdecodeCurrentRecord
+
 
 instance NFData TestRec where
   rnf TestRec{} = ()
