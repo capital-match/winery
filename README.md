@@ -1,7 +1,7 @@
 # winery
 
 ![logo](https://github.com/fumieval/winery/blob/master/art/logo256px.png?raw=true)
-[![Build Status](https://travis-ci.org/fumieval/winery.svg?branch=master)](https://travis-ci.org/fumieval/winery)
+![Haskell CI](https://github.com/fumieval/winery/workflows/Haskell%20CI/badge.svg)
 [![Hackage](https://img.shields.io/hackage/v/winery.svg)](https://hackage.haskell.org/package/winery)
 [![Discord](https://img.shields.io/discord/664807830116892674?color=%237095ec&label=Discord&style=plastic)](https://discord.gg/DG93Tgs)
 
@@ -137,6 +137,7 @@ At the moment, the following queries are supported:
 * `.[]` enumerate all the elements in a list
 * `.[i]` get the i-th element
 * `.[i:j]` enumerate i-th to j-th items
+* `.N` n-th element of a product
 * `.foo` Get a field named `foo`
 * `F | G` compose queries (left to right)
 

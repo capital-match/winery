@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -40,6 +41,7 @@ module Codec.Winery
   , schemaToBuilder
   , deserialiseSchema
   , Extractor(..)
+  , mkExtractor
   , unwrapExtractor
   , Decoder
   , evalDecoder
@@ -58,7 +60,9 @@ module Codec.Winery
   , extractConstructorBy
   , extractProductItemBy
   , extractVoid
+  , buildVariantExtractor
   , ExtractException(..)
+  , SingleField(..)
   -- * Variable-length quantity
   , VarInt(..)
   -- * Internal
@@ -85,6 +89,7 @@ module Codec.Winery
   , gtoBuilderVariant
   , gextractorVariant
   , gdecodeCurrentVariant
+  , gvariantExtractors
   , GEncodeProduct
   , GDecodeProduct
   , gschemaGenProduct
@@ -97,6 +102,7 @@ module Codec.Winery
   , bundleRecord
   , bundleRecordDefault
   , bundleVariant
+  , bundleVia
   -- * Preset schema
   , bootstrapSchema
   ) where
@@ -108,9 +114,9 @@ import Control.Applicative
 import Control.Exception (throw, throwIO)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.FastBuilder as BB
+import Data.Coerce
 import Data.Function (fix)
 import qualified Data.Text as T
-import Data.Text.Prettyprint.Doc (pretty, dquotes)
 import Data.Typeable
 import qualified Data.Vector as V
 import GHC.Generics (Generic, Rep)
@@ -312,13 +318,10 @@ extractFieldBy (Extractor g) name = Subextractor $ Extractor $ \case
     Just (i, sch) -> do
       m <- g sch
       return $ \case
-        TRecord xs -> maybe (error msg) (m . snd) $ xs V.!? i
+        TRecord xs -> maybe (throw $ InvalidTerm (TRecord xs)) (m . snd) $ xs V.!? i
         t -> throw $ InvalidTerm t
-    _ -> throwStrategy $ FieldNotFound rep name (map fst $ V.toList schs)
-  s -> throwStrategy $ UnexpectedSchema rep "a record" s
-  where
-    rep = "extractFieldBy ... " <> dquotes (pretty name)
-    msg = "Codec.Winery.extractFieldBy ... " <> show name <> ": impossible"
+    _ -> throwStrategy $ FieldNotFound [] name (map fst $ V.toList schs)
+  s -> throwStrategy $ UnexpectedSchema [] "a record" s
 
 -- | Extract a field using the supplied 'Extractor'.
 extractProductItemBy :: Extractor a -> Int -> Subextractor a
@@ -327,13 +330,10 @@ extractProductItemBy (Extractor g) i = Subextractor $ Extractor $ \case
     Just sch -> do
       m <- g sch
       return $ \case
-        TProduct xs -> maybe (error msg) m $ xs V.!? i
+        t@(TProduct xs) -> maybe (throw $ InvalidTerm t) m $ xs V.!? i
         t -> throw $ InvalidTerm t
-    _ -> throwStrategy $ ProductTooSmall i
-  s -> throwStrategy $ UnexpectedSchema rep "a record" s
-  where
-    rep = "extractProductItemBy ... " <> dquotes (pretty i)
-    msg = "Codec.Winery.extractProductItemBy ... " <> show i <> ": impossible"
+    _ -> throwStrategy $ ProductTooSmall [] i
+  s -> throwStrategy $ UnexpectedSchema [] "a record" s
 
 -- | Tries to extract a specific constructor of a variant. Useful for
 -- implementing backward-compatible extractors.
@@ -344,19 +344,24 @@ extractConstructorBy (d, name, f) cont = Subextractor $ Extractor $ \case
         run e s = runExtractor e s `unStrategy` decs
     case lookupWithIndexV name schs0 of
       Just (i, s) -> do
-        (j, dec) <- fmap ((,) i) $ run d $ case s of
-          SProduct [s'] -> s'
-          s' -> s'
+        dec <- case s of
+          -- Unwrap single-field constructor
+          SProduct [s'] -> do
+            dec <- runExtractor d s' `unStrategy` decs
+            pure $ \case
+              TProduct [v] -> dec v
+              t -> throw $ InvalidTerm t
+          _ -> runExtractor d s `unStrategy` decs
         let rest = SVariant $ V.filter ((/=name) . fst) schs0
         k <- run (unSubextractor cont) rest
         return $ \case
-          TVariant tag _ v
-            | tag == j -> f $ dec v
+          TVariant tag name' v
+            | tag == i -> f $ dec v
+            -- rest has fewer constructors
+            | tag > i -> k (TVariant (tag - 1) name' v)
           t -> k t
       _ -> run (unSubextractor cont) (SVariant schs0)
-  s -> throwStrategy $ UnexpectedSchema rep "a variant" s
-  where
-    rep = "extractConstructorBy ... " <> dquotes (pretty name)
+  s -> throwStrategy $ UnexpectedSchema [] "a variant" s
 
 -- | Tries to match on a constructor. If it doesn't match (or constructor
 -- doesn't exist at all), leave it to the successor.
@@ -371,7 +376,7 @@ extractVoid :: Typeable r => Subextractor r
 extractVoid = Subextractor $ mkExtractor $ \case
   SVariant schs0
     | V.null schs0 -> return $ throw . InvalidTerm
-  s -> throwStrategy $ UnexpectedSchema "extractVoid" "no constructors" s
+  s -> throwStrategy $ UnexpectedSchema [] "no constructors" s
 
 infixr 1 `extractConstructorBy`
 infixr 1 `extractConstructor`
@@ -386,6 +391,10 @@ instance (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), GDecodeProduct (Rep 
   toBuilder = gtoBuilderRecord . unWineryRecord
   extractor = WineryRecord <$> gextractorRecord Nothing
   decodeCurrent = WineryRecord <$> gdecodeCurrentRecord
+  {-# INLINE schemaGen #-}
+  {-# INLINE toBuilder #-}
+  {-# INLINE extractor #-}
+  {-# INLINE decodeCurrent #-}
 
 -- | Serialise a value as a product (omits field names).
 --
@@ -397,6 +406,10 @@ instance (GEncodeProduct (Rep a), GSerialiseProduct (Rep a), GDecodeProduct (Rep
   toBuilder = gtoBuilderProduct . unWineryProduct
   extractor = WineryProduct <$> gextractorProduct
   decodeCurrent = WineryProduct <$> gdecodeCurrentProduct
+  {-# INLINE schemaGen #-}
+  {-# INLINE toBuilder #-}
+  {-# INLINE extractor #-}
+  {-# INLINE decodeCurrent #-}
 
 -- | The 'Serialise' instance is generically defined for variants.
 --
@@ -408,3 +421,31 @@ instance (GConstructorCount (Rep a), GSerialiseVariant (Rep a), GEncodeVariant (
   toBuilder = gtoBuilderVariant . unWineryVariant
   extractor = WineryVariant <$> gextractorVariant
   decodeCurrent = WineryVariant <$> gdecodeCurrentVariant
+  {-# INLINE schemaGen #-}
+  {-# INLINE toBuilder #-}
+  {-# INLINE extractor #-}
+  {-# INLINE decodeCurrent #-}
+
+-- | A product with one field. Useful when creating a custom extractor for constructors.
+newtype SingleField a = SingleField { getSingleField :: a }
+  deriving (Show, Eq, Ord, Generic)
+
+instance Serialise a => Serialise (SingleField a) where
+  schemaGen = gschemaGenProduct
+  toBuilder = gtoBuilderProduct
+  extractor = gextractorProduct
+  decodeCurrent = gdecodeCurrentProduct
+  {-# INLINE schemaGen #-}
+  {-# INLINE toBuilder #-}
+  {-# INLINE extractor #-}
+  {-# INLINE decodeCurrent #-}
+
+-- | Create 'BundleSerialise' from a wrapper constructor (e.g. 'WineryRecord')
+bundleVia :: forall a t. (Coercible a t, Serialise t) => (a -> t) -> BundleSerialise a
+bundleVia _ = BundleSerialise
+  { bundleSchemaGen = coerce (schemaGen @t)
+  , bundleToBuilder = coerce (toBuilder @t)
+  , bundleExtractor = coerce (extractor @t)
+  , bundleDecodeCurrent = coerce (decodeCurrent @t)
+  }
+{-# INLINE bundleVia #-}
